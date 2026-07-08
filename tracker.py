@@ -28,7 +28,7 @@ def parse_price(price_text):
 
 async def check_flights():
     # 인천(ICN/GMP) -> 도쿄(NRT/HND) 2026-10-22 ~ 2026-10-25 (성인 2명)
-    url = "https://www.google.com/travel/flights?q=Flights%20to%20Tokyo%20from%20Seoul%20on%202026-10-22%20through%202026-10-25%20for%202%20adults"
+    url = "https://www.google.com/travel/flights?q=Flights%20to%20Tokyo%20from%20Seoul%20on%202026-10-22%20through%202026-10-25%20for%202%20adults&hl=ko&gl=KR&curr=KRW"
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
