@@ -1,30 +1,55 @@
+name: Flight Price Tracker
+
 on:
   schedule:
-    # 매 5분마다 실행 (UTC 기준)
-    - cron: '*/5 * * * *'
-  workflow_dispatch: # 수동 실행 버튼
+    # cron-job.org가 5분마다 workflow_dispatch를 트리거하므로
+    # 여기서는 백업용으로 30분마다 실행 (GitHub가 지연시켜도 보험)
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # cron-job.org 및 수동 실행용
+
+# 동시 실행 방지: 이전 실행이 아직 끝나지 않았으면 대기열에 넣지 않고 건너뜀
+concurrency:
+  group: flight-tracker
+  cancel-in-progress: false
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 5  # 5분 초과 시 자동 종료
+
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
-      
+      uses: actions/checkout@v4
+
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
-        
+        python-version: '3.11'
+
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        playwright install chromium
-        
+        playwright install --with-deps chromium
+
     - name: Run Tracker
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: python tracker.py
+
+    - name: Commit price history
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Flight Tracker Bot"
+        git add price_history.json || true
+        git diff --staged --quiet || git commit -m "📊 가격 이력 업데이트 $(date -u +%Y-%m-%dT%H:%M)"
+        git push || true
