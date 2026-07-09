@@ -110,7 +110,7 @@ async def check_flights():
         "https://www.google.com/travel/flights?"
         "q=Flights%20to%20Tokyo%20from%20Seoul%20"
         "on%202026-10-22%20through%202026-10-25%20for%203%20adults"
-        "&hl=ko&gl=KR&curr=KRW"
+        "&curr=KRW"
     )
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
@@ -124,18 +124,13 @@ async def check_flights():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            locale='ko-KR',
-            timezone_id='Asia/Seoul',
             user_agent=(
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                 'AppleWebKit/537.36 (KHTML, like Gecko) '
                 'Chrome/125.0.0.0 Safari/537.36'
-            ),
-            extra_http_headers={
-                'Accept-Language': 'ko-KR,ko;q=0.9'
-            }
+            )
         )
-
+        
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
             await stealth.apply_stealth_async(page)
