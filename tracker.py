@@ -99,22 +99,40 @@ def get_flight_price():
             
         best_flight = items[0]
         
-        # 가격 데이터 파싱
+        # 가격 데이터 파싱 (다양한 Apify 봇들의 JSON 형식에 모두 대응)
         price_val = best_flight.get("price")
+        
+        # 1. price가 딕셔너리인 경우 (예: {"amount": 290000, "currency": "KRW"})
+        if isinstance(price_val, dict):
+            price_val = price_val.get("amount") or price_val.get("total")
+            
+        # 2. price가 없고 prices라는 배열/객체가 있는 경우
         if not price_val and "prices" in best_flight:
-             price_val = best_flight["prices"].get("total") or best_flight["prices"].get("amount")
+             prices_obj = best_flight["prices"]
+             if isinstance(prices_obj, dict):
+                 price_val = prices_obj.get("total") or prices_obj.get("amount")
+             elif isinstance(prices_obj, list) and len(prices_obj) > 0:
+                 price_val = prices_obj[0].get("amount")
              
         if not price_val:
             print("⚠️ JSON에서 가격(price) 필드를 찾지 못했습니다.")
             print("RAW Data:", best_flight)
             return None
             
+        # 3. 가격이 문자열(예: '₩250,000')일 경우 숫자만 추출
         if isinstance(price_val, str):
             clean_price = "".join(filter(str.isdigit, price_val))
             if clean_price:
                 price_val = int(clean_price)
             else:
                 return None
+                
+        # 최종 가격이 숫자인지 안전하게 변환
+        try:
+            price_val = int(price_val)
+        except ValueError:
+            print(f"⚠️ 가격을 숫자로 변환할 수 없습니다: {price_val}")
+            return None
                 
         if price_val > 600000:
             price_per_person = price_val // 3
