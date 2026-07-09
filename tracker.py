@@ -1,185 +1,181 @@
 import os
-import requests
-import re
-import json
 import sys
-from datetime import datetime, timezone, timedelta
-import urllib.parse
-from telegram import Bot
+import json
 import asyncio
+from datetime import datetime
+from apify_client import ApifyClient
+from telegram import Bot
 
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
+# ==========================================
+# 설정값
+# ==========================================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
 
-# 구글 플라이트는 3인 총액이 아니라 '1인당 요금'을 보여줄 때가 많음.
 # 도쿄 왕복 1인당 목표가를 29만원으로 설정
 TARGET_PRICE = 290000 
-
 HISTORY_FILE = "price_history.json"
+
+# Apify Actor ID (가장 유명한 Google Flights Scraper)
+ACTOR_ID = "mscraper/google-flights-scraper"
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
-            pass
-    return {"prices": [], "lowest_ever": float('inf'), "last_run_time": None}
+        except Exception as e:
+            print(f"Error reading history: {e}")
+    return {"lowest_ever": float('inf'), "last_run_time": None}
 
 def save_history(history):
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=4, ensure_ascii=False)
-
-def get_trend_info(history, current_price):
-    if not history.get("prices"):
-        return "📉 가격 변동 정보 없음", True, ""
-    
-    prices_only = [entry["price"] for entry in history["prices"]]
-    lowest_ever = history.get("lowest_ever", float('inf'))
-    
-    is_new_lowest = False
-    if current_price < lowest_ever:
-        is_new_lowest = True
-        lowest_ever = current_price
-        
-    last_price = prices_only[-1]
-    diff = current_price - last_price
-    
-    if diff > 0:
-        trend = f"📈 직전 대비 {diff:,}원 상승"
-    elif diff < 0:
-        trend = f"📉 직전 대비 {abs(diff):,}원 하락!"
-    else:
-        trend = "➖ 직전과 가격 동일"
-        
-    stats = (
-        f"👑 역대 최저가: {lowest_ever:,}원\n"
-        f"📊 최근 평균가: {sum(prices_only[-5:])//len(prices_only[-5:]):,}원 (최근 5회)"
-    )
-    
-    return trend, is_new_lowest, stats
+        json.dump(history, f, ensure_ascii=False, indent=4)
 
 async def send_telegram_message(message):
-    print("Telegram Message:\n", message)
-    if TELEGRAM_TOKEN and CHAT_ID:
-        try:
-            bot = Bot(token=TELEGRAM_TOKEN)
-            await bot.send_message(chat_id=CHAT_ID, text=message)
-        except Exception as e:
-            print(f"Failed to send Telegram message: {e}")
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        print("Telegram Token or Chat ID is missing!")
+        return
+    bot = Bot(token=TELEGRAM_TOKEN)
+    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
 
-async def main():
-    now = datetime.now(timezone.utc) + timedelta(hours=9)
-    now_str = now.strftime("%Y-%m-%d %H:%M KST")
+def get_flight_price():
+    if not APIFY_TOKEN:
+        print("❌ APIFY_TOKEN is missing!")
+        sys.exit(1)
+        
+    client = ApifyClient(APIFY_TOKEN)
+    
+    # Apify 입력 데이터 정의 (서울 SEL -> 도쿄 TYO, 성인 3명, 10/22 ~ 10/25)
+    run_input = {
+        "departure": "SEL",
+        "arrival": "TYO",
+        "departureDate": "2026-10-22",
+        "returnDate": "2026-10-25",
+        "passengers": 3,
+        "currency": "KRW",
+        "type": "round",
+        "maxItems": 5, # 상위 5개만 조회하여 속도/비용 절약
+    }
+    
+    print(f"🚀 Apify Google Flights Scraper 호출 중... (Actor: {ACTOR_ID})")
+    
+    try:
+        # 봇 실행 및 완료 대기
+        run = client.actor(ACTOR_ID).call(run_input=run_input)
+        
+        # 결과 데이터셋 가져오기
+        dataset_id = run["defaultDatasetId"]
+        items = list(client.dataset(dataset_id).iterate_items())
+        
+        if not items:
+            print("⚠️ 비행기 표 데이터를 찾지 못했습니다.")
+            return None
+            
+        # 첫 번째 항목(최저가)의 가격 추출
+        # 보통 items[0]["price"] 에 가격이 숫자로 들어있음
+        best_flight = items[0]
+        
+        # 가격 데이터 파싱 (Apify 액터마다 필드명이 조금 다를 수 있으므로 안전하게 추출)
+        price_val = best_flight.get("price")
+        if not price_val and "prices" in best_flight:
+             # 일부 액터는 prices 하위 객체에 저장
+             price_val = best_flight["prices"].get("total") or best_flight["prices"].get("amount")
+             
+        if not price_val:
+            print("⚠️ JSON에서 가격(price) 필드를 찾지 못했습니다.")
+            print("RAW Data:", best_flight)
+            return None
+            
+        # 가격이 문자열(예: '₩250,000')일 경우 숫자만 추출
+        if isinstance(price_val, str):
+            clean_price = "".join(filter(str.isdigit, price_val))
+            if clean_price:
+                price_val = int(clean_price)
+            else:
+                return None
+                
+        # Apify는 간혹 총액(3인)을 반환할 수도 있으므로 1인당 가격인지 검증 필요.
+        # 구글 플라이트의 특성상 대부분 1인당 가격을 반환.
+        # 가격이 60만원 이상이면 3인 총액으로 간주하고 3으로 나눔.
+        if price_val > 600000:
+            price_per_person = price_val // 3
+        else:
+            price_per_person = price_val
+            
+        print(f"🎯 Apify 추출 성공! 1인당 최저가: {price_per_person}원 (원본: {price_val})")
+        return price_per_person
+
+    except Exception as e:
+        print(f"❌ Apify API 호출 실패: {e}")
+        return None
+
+def main():
+    now = datetime.now()
+    current_time_str = now.strftime("%Y-%m-%d %H:%M KST")
+    print(f"\n🕐 {current_time_str} — Apify 구글 플라이트 가격 조회 시작")
     
     history = load_history()
     
-    # --- 크레딧 보호(1시간 간격 강제) 로직 ---
-    # cron-job.org가 10분마다 찔러도, 마지막 실행 후 45분이 안 지났으면 크레딧 소모 없이 패스
+    # --- 크레딧 보호(20분 간격 강제) 로직 ---
+    # Apify는 비용이 저렴하므로 쿨타임을 20분으로 대폭 축소
     if history.get("last_run_time"):
         try:
             last_run = datetime.strptime(history["last_run_time"], "%Y-%m-%d %H:%M KST")
             time_diff = now.replace(tzinfo=None) - last_run
-            if time_diff.total_seconds() < 45 * 60:
-                print(f"⏸️ 45분 쿨타임 대기 중입니다. (마지막 실행: {history['last_run_time']})")
-                print("무료 크레딧(5000개) 방어를 위해 조회를 건너뜁니다.")
+            if time_diff.total_seconds() < 19 * 60:
+                print(f"⏸️ 20분 쿨타임 대기 중입니다. (마지막 실행: {history['last_run_time']})")
+                print("무료 캐시($5) 방어를 위해 조회를 건너뜁니다.")
                 sys.exit(0)
         except Exception as e:
-            print("시간 파싱 에러 (무시하고 진행):", e)
-    
-    print(f"🕐 {now_str} — 구글 플라이트 가격 조회 시작 (render=true)")
-    
-    if not SCRAPER_API_KEY:
-        print("❌ SCRAPER_API_KEY가 없습니다.")
-        sys.exit(1)
+            print(f"시간 파싱 에러 (무시하고 진행): {e}")
 
-    url = "https://www.google.com/travel/flights/search?tfs=CBwQAhoqEgoyMDI2LTEwLTIyagwIAxIIL20vMGo3ZDhyDAgDEggvbS8wN2Rma3ABGioSCjIwMjYtMTAtMjVqDAgDEggvbS8wN2Rma3IMCAMSCC9tLzBqN2Q4cAEQAxgDQAFAAUgBmAEB&hl=ko&curr=KRW"
-    scraper_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(url)}&render=true"
+    # 가격 조회
+    lowest_price = get_flight_price()
     
-    lowest_price = None
-    
-    try:
-        res = requests.get(scraper_url, timeout=90)
-        if res.status_code == 200:
-            html = res.text
-            
-            # 구글 플라이트 가격 정규식 (₩123,456 또는 123,456원)
-            won_prices1 = re.findall(r'[₩]\s*([0-9]{1,3}(?:,[0-9]{3})+)', html)
-            won_prices2 = re.findall(r'([0-9]{1,3}(?:,[0-9]{3})+)\s*[원]', html)
-            all_raw = won_prices1 + won_prices2
-            
-            valid_prices = []
-            for p in all_raw:
-                clean_price = p.replace(',', '').strip()
-                if clean_price.isdigit():
-                    num_price = int(clean_price)
-                    # 일본 왕복 1인당 최소 10만원 ~ 최대 150만원 사이로 필터링
-                    # (구글 플라이트는 리스트에 1인당 가격을 노출함)
-                    if 100000 < num_price < 1500000:
-                        valid_prices.append(num_price)
-                        
-            if valid_prices:
-                lowest_price = min(valid_prices)
-                print(f"🎯 구글 플라이트 최저가 발견: 1인당 {lowest_price:,}원 (총액 아님)")
-        else:
-            print(f"❌ ScraperAPI Error: HTTP {res.status_code}")
-            
-    except Exception as e:
-        print("❌ Request Error:", e)
-
     if lowest_price is None:
-        print("⚠️ 가격을 찾지 못했습니다. 크레딧만 소모됨.")
-        # 실패 시에는 last_run_time을 갱신하지 않아 다음 10분 뒤에 재시도하도록 함
+        print("⚠️ 가격을 찾지 못했습니다. 쿨타임을 적용하지 않고 종료합니다.")
         sys.exit(1)
-
-    # 성공 시에만 쿨타임 갱신
-    history["last_run_time"] = now_str
+        
+    history["last_run_time"] = current_time_str
+    lowest_ever = history.get("lowest_ever", float('inf'))
     
-    trend, is_new_lowest, stats = get_trend_info(history, lowest_price)
-
-    history["prices"].append({
-        "time": now_str,
-        "price": lowest_price
-    })
-    
-    if is_new_lowest:
+    is_new_lowest = False
+    if lowest_price < lowest_ever:
+        is_new_lowest = True
         history["lowest_ever"] = lowest_price
         
     save_history(history)
-
-    diff = 0
-    if history.get("prices") and len(history["prices"]) >= 2:
-        diff = lowest_price - history["prices"][-2]["price"]
-
-    # 목표가 도달 또는 최저가 갱신 시
+    
+    total_price = lowest_price * 3
+    
+    # 목표가 달성 또는 역대 최저가 갱신 시 알림
     if lowest_price <= TARGET_PRICE or is_new_lowest:
-        badge = "🔥 1인당 목표가 달성!" if lowest_price <= TARGET_PRICE else "👑 역대 최저가 갱신!"
         msg = (
-            f"🚨 특가 알림 (구글 플라이트) 🚨\n\n"
-            f"서울(인천) ✈️ 도쿄\n"
-            f"📅 10/22(목) ~ 10/25(일)\n\n"
-            f"💰 현재 최저가 (1인당): {lowest_price:,}원\n"
-            f"👨‍👩‍👧 예상 총액 (3인): {lowest_price * 3:,}원\n"
-            f"🔖 {badge}\n\n"
-            f"{trend}\n"
-            f"{stats}\n\n"
-            f"🔗 구글 플라이트 링크:\n{url}\n\n"
-            f"⏱️ {now_str}"
+            f"✈️ **[구글 플라이트 특가 알림]**\n\n"
+            f"**노선:** 서울(SEL) ➡️ 도쿄(TYO)\n"
+            f"**일정:** 10/22(목) ~ 10/25(일) 왕복\n"
+            f"**인원:** 성인 3명\n\n"
         )
-        await send_telegram_message(msg)
-    elif diff < 0:
-        msg = (
-            f"🔔 가격 하락 알림 (구글 플라이트)\n\n"
-            f"현재가 (1인당): {lowest_price:,}원\n"
-            f"변동: {abs(diff):,}원 저렴해졌습니다!\n"
-            f"(목표가 {TARGET_PRICE:,}원까지 {(lowest_price - TARGET_PRICE):,}원 남음)\n\n"
-            f"🔗 예매 링크:\n{url}\n\n"
-            f"⏱️ {now_str}"
+        
+        if lowest_price <= TARGET_PRICE:
+            msg += f"🔥 **목표가({TARGET_PRICE:,}원) 달성!**\n"
+        elif is_new_lowest:
+            msg += f"📉 **역대 최저가 갱신!**\n"
+            
+        msg += (
+            f"💸 **1인당 요금:** `{lowest_price:,}원`\n"
+            f"💰 **3인 총액:** `{total_price:,}원`\n\n"
+            f"🔍 [구글 플라이트로 예매하러 가기](https://www.google.com/travel/flights?hl=ko)\n"
+            f"_(마지막 조회: {current_time_str})_"
         )
-        await send_telegram_message(msg)
+        
+        print("텔레그램 알림 발송 중...")
+        asyncio.run(send_telegram_message(msg))
+        print("✅ 텔레그램 알림 발송 완료!")
     else:
-        print(f"⏸️ 목표가 미달({TARGET_PRICE:,}원) 및 하락 없음 (알림 미전송)")
+        print(f"ℹ️ 현재 최저가({lowest_price:,}원)가 목표가({TARGET_PRICE:,}원)보다 높습니다. 알림 생략.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
