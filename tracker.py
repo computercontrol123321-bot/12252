@@ -127,7 +127,8 @@ async def check_flights():
         browser = await p.chromium.launch(headless=True, proxy=proxy_settings)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            locale="ko-KR"
+            locale="ko-KR",
+            ignore_https_errors=True
         )
         
         for attempt in range(1, MAX_RETRIES + 2):
