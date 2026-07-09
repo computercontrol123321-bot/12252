@@ -184,6 +184,11 @@ async def check_flights():
     # ─── 결과 처리 ────────────────────────────────────────
     if lowest_price is None:
         print("❌ 모든 시도에서 가격을 찾지 못했습니다.")
+        await send_telegram_message(
+            f"⚠️ 항공권 가격 조회 실패 ({now_str})\n"
+            f"Google Flights에서 가격을 추출하지 못했습니다.\n"
+            f"수동 확인: {url}"
+        )
         return
 
     # 가격 추이 분석
