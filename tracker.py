@@ -184,11 +184,6 @@ async def check_flights():
     # ─── 결과 처리 ────────────────────────────────────────
     if lowest_price is None:
         print("❌ 모든 시도에서 가격을 찾지 못했습니다.")
-        await send_telegram_message(
-            f"⚠️ 항공권 가격 조회 실패 ({now_str})\n"
-            f"Google Flights에서 가격을 추출하지 못했습니다.\n"
-            f"수동 확인: {url}"
-        )
         return
 
     # 가격 추이 분석
@@ -224,24 +219,6 @@ async def check_flights():
             f"🔗 예매 링크:\n{url}\n"
             f"\n"
             f"⏱️ 조회 시각: {now_str}"
-        )
-        await send_telegram_message(msg)
-
-    elif is_new_lowest:
-        # 📉 목표가 초과이지만 역대 최저가 갱신 → 참고 알림
-        msg = (
-            f"📉 역대 최저가 갱신 알림\n"
-            f"\n"
-            f"서울(인천) ✈️ 도쿄\n"
-            f"📅 10/22(목) ~ 10/25(일) | 👤 성인 2명\n"
-            f"\n"
-            f"💰 현재 최저가: {lowest_price:,}원\n"
-            f"🎯 목표가까지: {lowest_price - TARGET_PRICE:,}원 남음\n"
-            f"\n"
-            f"{trend}\n"
-            f"{stats}\n"
-            f"\n"
-            f"⏱️ {now_str}"
         )
         await send_telegram_message(msg)
 
