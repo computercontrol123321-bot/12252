@@ -3,7 +3,7 @@ import os
 import json
 import datetime
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 from telegram import Bot
 import re
 import sys
@@ -135,7 +135,7 @@ async def check_flights():
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
             # 봇 탐지 우회 스크립트 주입
-            await stealth_async(page)
+            await Stealth().apply_stealth_async(page)
             try:
                 print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Google Flights 로딩 중...")
                 await page.goto(url, wait_until='domcontentloaded', timeout=60000)
