@@ -74,18 +74,14 @@ def get_trend_info(history, current_price):
 
 # ─── 가격 파싱 ──────────────────────────────────────────────
 def parse_price(price_text):
-    """₩ 또는 '원' 표기된 가격 텍스트에서 숫자 추출 (KRW 전용)"""
+    """가격 텍스트에서 숫자 추출"""
     if not price_text or len(price_text) > 100:
         return None
-    # '₩354,200', '354,200원', '₩ 354,200' 등에서 숫자만 추출
     numbers = re.findall(r'\d+', price_text)
     if not numbers:
         return None
     price = int(''.join(numbers))
-    # KRW 항공권 가격 범위 필터 (5만원~200만원)
-    if 50000 < price < 2000000:
-        return price
-    return None
+    return price
 
 
 # ─── 텔레그램 알림 ──────────────────────────────────────────
@@ -104,82 +100,62 @@ async def send_telegram_message(message):
 
 # ─── 메인 스크래핑 ──────────────────────────────────────────
 async def check_flights():
-    """Google Flights에서 항공권 가격을 1회 조회"""
-    # URL에 KRW 통화, 한국어, 한국 지역 명시
-    url = (
-        "https://www.google.com/travel/flights?"
-        "q=Flights%20to%20Tokyo%20from%20Seoul%20"
-        "on%202026-10-22%20through%202026-10-25%20for%203%20adults"
-        "&curr=KRW"
-    )
+    """트립닷컴 항공권 가격 조회"""
+    url = "https://kr.trip.com/flights/seoul-to-tokyo/tickets-sel-tyo?dcity=sel&acity=tyo&ddate=2026-10-22&rdate=2026-10-25&flighttype=rt&class=y&quantity=3"
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now_str = now.strftime("%Y-%m-%d %H:%M KST")
-    print(f"🕐 {now_str} — 가격 조회 시작")
+    print(f"🕐 {now_str} — 가격 조회 시작 (Trip.com)")
 
     history = load_history()
     lowest_price = None
-    stealth = Stealth()
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            user_agent=(
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/125.0.0.0 Safari/537.36'
-            )
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         )
         
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
-            await stealth.apply_stealth_async(page)
             try:
-                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] 페이지 로딩 중...")
+                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Trip.com 로딩 중...")
                 await page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 
-                # '원'이나 '₩' 기호가 화면에 나타날 때까지 최대 40초 대기 (GitHub Actions 환경은 더 느릴 수 있으므로)
-                try:
-                    await page.wait_for_function(
-                        "() => document.body.innerText.includes('원') || document.body.innerText.includes('₩')",
-                        timeout=40000
-                    )
-                    await page.wait_for_timeout(3000)  # JS 렌더링이 완전히 안정화될 때까지 3초 추가 대기
-                except Exception:
-                    # 새로고침 버튼이 있는지 확인 (오류 발생 시)
-                    if await page.locator("text='새로고침'").count() > 0:
-                        print("  [오류 화면 감지] 새로고침 버튼 클릭 시도")
-                        await page.locator("text='새로고침'").click()
-                        
-                        try:
-                            await page.wait_for_function(
-                                "() => document.body.innerText.includes('원') || document.body.innerText.includes('₩')",
-                                timeout=20000
-                            )
-                        except Exception:
-                            pass
-                    pass  # 시간 초과 시 아래 필터링에서 걸러지고 재시도됨
-
-                # ₩ 또는 '원' 포함된 leaf 요소에서 가격 추출
-                prices_text = await page.evaluate('''() => {
-                    const elements = Array.from(document.querySelectorAll('*'));
-                    return elements
-                        .filter(el =>
-                            el.children.length === 0 &&
-                            el.textContent &&
-                            (el.textContent.includes('₩') || el.textContent.includes('원'))
-                        )
-                        .map(el => el.textContent.trim());
-                }''')
-
                 valid_prices = []
-                for pt in prices_text:
-                    price = parse_price(pt)
-                    if price:
-                        valid_prices.append(price)
+                for _ in range(25):
+                    # "선택" 버튼 주변의 가격만 정확히 추출 (상단 달력 탭 가격 제외)
+                    prices = await page.evaluate('''() => {
+                        const buttons = Array.from(document.querySelectorAll('button, div')).filter(el => el.textContent === '선택' || el.innerText === '선택');
+                        let foundPrices = [];
+                        for (let btn of buttons) {
+                            let parent = btn.parentElement;
+                            for (let i=0; i<5; i++) {
+                                if (parent) {
+                                    const match = parent.innerText.match(/(\\d{1,3}(?:,\\d{3})+)\\s*원/);
+                                    if (match) {
+                                        foundPrices.push(match[1]);
+                                        break;
+                                    }
+                                    parent = parent.parentElement;
+                                }
+                            }
+                        }
+                        return foundPrices;
+                    }''')
+                    
+                    if prices and len(prices) > 0:
+                        for pt in prices:
+                            price = int(pt.replace(',', ''))
+                            if 50000 < price < 1500000:
+                                valid_prices.append(price)
+                        if valid_prices:
+                            break
+                    await page.wait_for_timeout(2000)
 
                 if valid_prices:
-                    lowest_price = min(valid_prices)
+                    # Trip.com displays price per person, so we multiply by 3 to get total price
+                    lowest_price = min(valid_prices) * 3
                     print(f"  ✅ 최저가 발견: {lowest_price:,}원 (총 {len(valid_prices)}개 가격)")
                     break  # 성공 → 루프 탈출
                 else:
@@ -212,7 +188,7 @@ async def check_flights():
         print("❌ 모든 시도에서 가격을 찾지 못했습니다.")
         await send_telegram_message(
             f"⚠️ 항공권 가격 조회 실패 ({now_str})\n"
-            f"Google Flights에서 가격을 추출하지 못했습니다.\n"
+            f"Trip.com에서 가격을 추출하지 못했습니다.\n"
             f"수동 확인: {url}"
         )
         return
