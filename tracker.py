@@ -2,8 +2,9 @@ import os
 import sys
 import json
 import asyncio
+import time
+import requests
 from datetime import datetime
-from apify_client import ApifyClient
 from telegram import Bot
 
 # ==========================================
@@ -45,9 +46,6 @@ def get_flight_price():
         print("❌ APIFY_TOKEN is missing!")
         sys.exit(1)
         
-    client = ApifyClient(APIFY_TOKEN)
-    
-    # Apify 입력 데이터 정의 (서울 SEL -> 도쿄 TYO, 성인 3명, 10/22 ~ 10/25)
     run_input = {
         "departure": "SEL",
         "arrival": "TYO",
@@ -56,31 +54,53 @@ def get_flight_price():
         "passengers": 3,
         "currency": "KRW",
         "type": "round",
-        "maxItems": 5, # 상위 5개만 조회하여 속도/비용 절약
+        "maxItems": 5,
     }
     
     print(f"🚀 Apify Google Flights Scraper 호출 중... (Actor: {ACTOR_ID})")
     
     try:
-        # 봇 실행 및 완료 대기
-        run = client.actor(ACTOR_ID).call(run_input=run_input)
+        # 1. 봇 실행 (비동기로 실행하고 Run ID를 받음)
+        start_url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
+        res = requests.post(start_url, json=run_input)
         
-        # 결과 데이터셋 가져오기
-        dataset_id = run["defaultDatasetId"]
-        items = list(client.dataset(dataset_id).iterate_items())
+        if res.status_code != 201:
+            print(f"❌ Apify 실행 실패: HTTP {res.status_code}")
+            print(res.text)
+            return None
+            
+        data = res.json()["data"]
+        run_id = data["id"]
+        dataset_id = data["defaultDatasetId"]
+        
+        print(f"⏳ 데이터 수집 대기 중... (Run ID: {run_id})")
+        
+        # 2. 완료될 때까지 상태 확인 (최대 3분 대기)
+        status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
+        for _ in range(36): # 5초 * 36 = 180초 대기
+            time.sleep(5)
+            s_res = requests.get(status_url)
+            status = s_res.json()["data"]["status"]
+            if status == "SUCCEEDED":
+                break
+            elif status in ["FAILED", "ABORTED", "TIMED-OUT"]:
+                print(f"❌ Apify 작업 실패 (상태: {status})")
+                return None
+                
+        # 3. 완료된 데이터 가져오기
+        items_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
+        i_res = requests.get(items_url)
+        items = i_res.json()
         
         if not items:
             print("⚠️ 비행기 표 데이터를 찾지 못했습니다.")
             return None
             
-        # 첫 번째 항목(최저가)의 가격 추출
-        # 보통 items[0]["price"] 에 가격이 숫자로 들어있음
         best_flight = items[0]
         
-        # 가격 데이터 파싱 (Apify 액터마다 필드명이 조금 다를 수 있으므로 안전하게 추출)
+        # 가격 데이터 파싱
         price_val = best_flight.get("price")
         if not price_val and "prices" in best_flight:
-             # 일부 액터는 prices 하위 객체에 저장
              price_val = best_flight["prices"].get("total") or best_flight["prices"].get("amount")
              
         if not price_val:
@@ -88,7 +108,6 @@ def get_flight_price():
             print("RAW Data:", best_flight)
             return None
             
-        # 가격이 문자열(예: '₩250,000')일 경우 숫자만 추출
         if isinstance(price_val, str):
             clean_price = "".join(filter(str.isdigit, price_val))
             if clean_price:
@@ -96,9 +115,6 @@ def get_flight_price():
             else:
                 return None
                 
-        # Apify는 간혹 총액(3인)을 반환할 수도 있으므로 1인당 가격인지 검증 필요.
-        # 구글 플라이트의 특성상 대부분 1인당 가격을 반환.
-        # 가격이 60만원 이상이면 3인 총액으로 간주하고 3으로 나눔.
         if price_val > 600000:
             price_per_person = price_val // 3
         else:
@@ -108,7 +124,7 @@ def get_flight_price():
         return price_per_person
 
     except Exception as e:
-        print(f"❌ Apify API 호출 실패: {e}")
+        print(f"❌ Apify API 호출 중 에러 발생: {e}")
         return None
 
 def main():
