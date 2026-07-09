@@ -12,7 +12,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 # ─── 설정값 ───────────────────────────────────────────────
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-TARGET_PRICE = 600000  # 목표 가격 (2인 합산 총액, 60만원 이하)
+TARGET_PRICE = 930000  # 목표 가격 (3인 합산 총액, 93만원 이하)
 HISTORY_FILE = "price_history.json"
 MAX_HISTORY = 288  # 5분 × 288 = 24시간치 기록 보관
 MAX_RETRIES = 2  # 스크래핑 실패 시 재시도 횟수
@@ -108,7 +108,7 @@ async def check_flights():
     url = (
         "https://www.google.com/travel/flights?"
         "q=Flights%20to%20Tokyo%20from%20Seoul%20"
-        "on%202026-10-22%20through%202026-10-25%20for%202%20adults"
+        "on%202026-10-22%20through%202026-10-25%20for%203%20adults"
         "&hl=ko&gl=KR&curr=KRW"
     )
 
@@ -211,7 +211,7 @@ async def check_flights():
             f"🚨 항공권 가격 알림 🚨\n"
             f"\n"
             f"서울(인천) ✈️ 도쿄\n"
-            f"📅 10/22(목) ~ 10/25(일) | 👤 성인 2명\n"
+            f"📅 10/22(목) ~ 10/25(일) | 👤 성인 3명\n"
             f"\n"
             f"💰 현재 최저가: {lowest_price:,}원\n"
             f"🎯 목표가: {TARGET_PRICE:,}원 이하 ✅ 달성!\n"
