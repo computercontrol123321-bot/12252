@@ -137,7 +137,7 @@ async def check_flights():
             
             # 불필요한 리소스 차단 (ScraperAPI 동시 접속 제한 방지)
             async def intercept_route(route):
-                if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                if route.request.resource_type in ["image", "media", "font"]:
                     await route.abort()
                 else:
                     await route.continue_()
@@ -155,6 +155,15 @@ async def check_flights():
                 valid_prices = []
                 for wait_idx in range(20):
                     await page.wait_for_timeout(2000)
+                    
+                    # 10초가 지났는데도 못 찾았다면 검색 버튼 한번 클릭 시도 (멈춤 방지용)
+                    if wait_idx == 5:
+                        try:
+                            await page.get_by_role("button", name="검색").click(timeout=3000)
+                            print("  🔄 검색 버튼 강제 클릭 완료")
+                        except:
+                            pass
+                            
                     html = await page.content()
                     
                     # 네이버 가격 클래스 추출
