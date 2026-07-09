@@ -3,7 +3,7 @@ import os
 import json
 import datetime
 from playwright.async_api import async_playwright
-from playwright_stealth import Stealth
+from playwright_stealth import stealth_async
 from telegram import Bot
 import re
 import sys
@@ -124,7 +124,8 @@ async def check_flights():
         else:
             print("⚠️ SCRAPER_API_KEY가 설정되지 않아 로컬 네트워크로 직접 접속합니다.")
 
-        browser = await p.chromium.launch(headless=True, proxy=proxy_settings)
+        # 가상 디스플레이(xvfb)가 켜져 있으므로 headless=False로 구동하여 봇 탐지 우회
+        browser = await p.chromium.launch(headless=False, proxy=proxy_settings)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             locale="ko-KR",
@@ -133,6 +134,8 @@ async def check_flights():
         
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
+            # 봇 탐지 우회 스크립트 주입
+            await stealth_async(page)
             try:
                 print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Google Flights 로딩 중...")
                 await page.goto(url, wait_until='domcontentloaded', timeout=60000)
