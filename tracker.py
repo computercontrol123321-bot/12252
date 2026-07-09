@@ -109,24 +109,16 @@ async def check_flights():
 
     history = load_history()
     lowest_price = None
-    stealth = Stealth()
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context(
-            user_agent=(
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/125.0.0.0 Safari/537.36'
-            )
-        )
+        context = await browser.new_context()
         
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
-            await stealth.apply_stealth_async(page)
             try:
                 print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] 네이버 항공권 로딩 중...")
-                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                await page.goto(url, wait_until='networkidle', timeout=60000)
                 
                 valid_prices = []
                 # 가격이 뜰 때까지 주기적으로 확인 (최대 40초)
