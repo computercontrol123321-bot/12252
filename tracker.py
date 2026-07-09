@@ -137,18 +137,23 @@ async def check_flights():
                 print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Google Flights 로딩 중...")
                 await page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 
-                # 구글 플라이트 렌더링 대기
-                await page.wait_for_timeout(5000)
-                
-                html = await page.content()
-                prices_text = re.findall(r'₩\s*(\d{1,3}(?:,\d{3})+)', html)
-                
+                # 구글 플라이트 렌더링 대기 (최대 30초 동적 대기)
                 valid_prices = []
-                for pt in prices_text:
-                    price = int(pt.replace(',', ''))
-                    # 총합 3인 가격 기준이므로 범위 조정 (약 30만 원 ~ 300만 원)
-                    if 300000 < price < 3000000:
-                        valid_prices.append(price)
+                for wait_idx in range(15):
+                    await page.wait_for_timeout(2000)
+                    html = await page.content()
+                    prices_text = re.findall(r'₩\s*(\d{1,3}(?:,\d{3})+)', html)
+                    
+                    for pt in prices_text:
+                        price = int(pt.replace(',', ''))
+                        # 총합 3인 가격 기준이므로 범위 조정 (약 30만 원 ~ 300만 원)
+                        if 300000 < price < 3000000:
+                            valid_prices.append(price)
+                            
+                    if valid_prices:
+                        print(f"  ⚡ {wait_idx * 2 + 2}초 만에 화면 로딩 완료!")
+                        break  # 가격을 찾으면 즉시 대기 루프 탈출
+                
 
                 if valid_prices:
                     # Google Flights는 파라미터에 따라 3인 총액을 보여주므로 그대로 사용
