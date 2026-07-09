@@ -6,7 +6,7 @@ on:
 # 동시 실행 방지: 이전 실행이 아직 끝나지 않았으면 대기열에 넣지 않고 건너뜀
 concurrency:
   group: flight-tracker
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   run-scraper:
