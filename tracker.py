@@ -101,12 +101,12 @@ async def send_telegram_message(message):
 
 # ─── 메인 스크래핑 ──────────────────────────────────────────
 async def check_flights():
-    """구글 플라이트 항공권 가격 조회 (ScraperAPI 경유)"""
-    url = "https://www.google.com/travel/flights?q=Flights%20to%20TYO%20from%20SEL%20on%202026-10-22%20through%202026-10-25%20for%203%20adults&hl=ko&curr=KRW"
+    """네이버 항공권 가격 조회 (ScraperAPI 경유)"""
+    url = "https://flight.naver.com/flights/international/SEL-TYO-20261022/TYO-SEL-20261025?adult=3&fareType=Y"
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now_str = now.strftime("%Y-%m-%d %H:%M KST")
-    print(f"🕐 {now_str} — 가격 조회 시작 (Google Flights via ScraperAPI)")
+    print(f"🕐 {now_str} — 가격 조회 시작 (Naver Flights via ScraperAPI)")
 
     history = load_history()
     lowest_price = None
@@ -147,29 +147,41 @@ async def check_flights():
             # 봇 탐지 우회 스크립트 주입
             await Stealth().apply_stealth_async(page)
             try:
-                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Google Flights 로딩 중...")
-                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Naver Flights 로딩 중...")
+                # 타임아웃을 60초로 넉넉하게 설정
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 
-                # 구글 플라이트 렌더링 대기 (최대 30초 동적 대기)
+                # 네이버 항공권 렌더링 대기 (최대 40초 동적 대기)
                 valid_prices = []
-                for wait_idx in range(15):
+                for wait_idx in range(20):
                     await page.wait_for_timeout(2000)
                     html = await page.content()
-                    prices_text = re.findall(r'₩\s*(\d{1,3}(?:,\d{3})+)', html)
                     
-                    for pt in prices_text:
-                        price = int(pt.replace(',', ''))
-                        # 총합 3인 가격 기준이므로 범위 조정 (약 30만 원 ~ 300만 원)
-                        if 300000 < price < 3000000:
-                            valid_prices.append(price)
-                            
+                    # 네이버 가격 클래스 추출
+                    import re
+                    # item_Price__ 클래스 내부의 가격
+                    prices = re.findall(r'item_Price__[^>]+>([^<]+)</i>', html)
+                    if not prices:
+                        prices = re.findall(r'item_Price__[^>]+><b[^>]*>([^<]+)</b>', html)
+                    if not prices:
+                        # 좀 더 범용적인 정규식 (10만원 이상 금액)
+                        prices = re.findall(r'([0-9]{1,3}(?:,[0-9]{3})+)원', html)
+                    
+                    for p in prices:
+                        clean_price = p.replace(',', '').replace('원', '').strip()
+                        if clean_price.isdigit():
+                            num_price = int(clean_price)
+                            # 왕복 3인 기준이므로 최소 30만원 이상일 것
+                            if num_price > 300000:
+                                valid_prices.append(num_price)
+                                
                     if valid_prices:
                         print(f"  ⚡ {wait_idx * 2 + 2}초 만에 화면 로딩 완료!")
                         break  # 가격을 찾으면 즉시 대기 루프 탈출
                 
 
                 if valid_prices:
-                    # Google Flights는 파라미터에 따라 3인 총액을 보여주므로 그대로 사용
+                    # Naver Flights는 파라미터에 따라 3인 총액을 보여주므로 그대로 사용
                     lowest_price = min(valid_prices)
                     print(f"  ✅ 최저가 발견: {lowest_price:,}원 (총 {len(valid_prices)}개 가격)")
                     break  # 성공 → 루프 탈출
