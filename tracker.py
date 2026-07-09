@@ -206,31 +206,51 @@ async def check_flights():
     save_history(history)
 
     # ─── 알림 조건 판단 ───────────────────────────────────
-    if lowest_price <= TARGET_PRICE:
-        # 🎯 목표가 이하 → 즉시 알림!
-        new_low_badge = "🏆 역대 최저가 갱신! " if is_new_lowest else ""
+    diff = 0
+    if history.get("prices") and len(history["prices"]) >= 2:
+        diff = lowest_price - history["prices"][-2]["price"]
+
+    # 1. 역대 최저가 또는 목표가 도달
+    if lowest_price <= TARGET_PRICE or is_new_lowest:
+        badge = "🎯 목표가 달성!" if lowest_price <= TARGET_PRICE else "🏆 역대 최저가 갱신!"
         msg = (
-            f"🚨 항공권 가격 알림 🚨\n"
-            f"\n"
+            f"🚨 항공권 초특가 알림 🚨\n\n"
             f"서울(인천) ✈️ 도쿄\n"
-            f"📅 10/22(목) ~ 10/25(일) | 👤 성인 3명\n"
-            f"\n"
+            f"📅 10/22(목) ~ 10/25(일) | 👤 성인 3명\n\n"
             f"💰 현재 최저가: {lowest_price:,}원\n"
-            f"🎯 목표가: {TARGET_PRICE:,}원 이하 ✅ 달성!\n"
-            f"\n"
-            f"{new_low_badge}{trend}\n"
-            f"{stats}\n"
-            f"\n"
-            f"⚠️ 예매 전 공식 항공사인지 꼭 확인하세요!\n"
-            f"\n"
-            f"🔗 예매 링크:\n{url}\n"
-            f"\n"
-            f"⏱️ 조회 시각: {now_str}"
+            f"✨ {badge}\n\n"
+            f"{trend}\n"
+            f"{stats}\n\n"
+            f"🔗 예매 링크:\n{url}\n\n"
+            f"⏱️ {now_str}"
+        )
+        await send_telegram_message(msg)
+
+    # 2. 가격 하락 (직전 시간 대비)
+    elif diff < 0:
+        msg = (
+            f"📉 항공권 가격 하락 알림\n\n"
+            f"현재가: {lowest_price:,}원\n"
+            f"변동: {abs(diff):,}원 저렴해졌습니다!\n"
+            f"(목표가 {TARGET_PRICE:,}원까지 {(lowest_price - TARGET_PRICE):,}원 남음)\n\n"
+            f"🔗 예매 링크:\n{url}\n\n"
+            f"⏱️ {now_str}"
+        )
+        await send_telegram_message(msg)
+
+    # 3. 매일 아침 8시 요약 브리핑
+    elif now.hour == 8 and now.minute < 5:
+        msg = (
+            f"🌅 일일 항공권 브리핑\n\n"
+            f"현재가: {lowest_price:,}원\n"
+            f"(목표가: {TARGET_PRICE:,}원)\n\n"
+            f"{stats}\n\n"
+            f"🔗 예매 링크:\n{url}"
         )
         await send_telegram_message(msg)
 
     else:
-        print(f"  ℹ️ 현재가 {lowest_price:,}원 > 목표가 {TARGET_PRICE:,}원 — 알림 미전송")
+        print(f"  ℹ️ 목표가 미달성({TARGET_PRICE:,}원) 및 하락 없음 — 알림 미전송")
         if trend:
             print(f"  {trend}")
 
