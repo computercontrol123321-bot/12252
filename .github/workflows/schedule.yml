@@ -40,7 +40,9 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: python tracker.py
+      run: |
+        sudo apt-get install -y xvfb
+        xvfb-run python tracker.py
 
     - name: Commit price history
       run: |
