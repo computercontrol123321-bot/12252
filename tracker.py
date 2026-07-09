@@ -202,7 +202,7 @@ def main():
         msg += (
             f"💸 **1인당 요금:** `{lowest_price:,}원`\n"
             f"💰 **3인 총액:** `{total_price:,}원`\n\n"
-            f"🔍 [구글 플라이트로 예매하러 가기 (검색창 자동완성)](https://www.google.com/travel/flights?q=Flights%20from%20SEL%20to%20TYO%20on%202026-10-22%20through%202026-10-25)\n"
+            f"🔍 [구글 플라이트로 예매하러 가기 (검색창 자동완성)](https://www.google.com/travel/flights?q=Flights%20from%20SEL%20to%20TYO%20on%202026-10-22%20through%202026-10-25%20for%203%20adults)\n"
             f"_(마지막 조회: {current_time_str})_"
         )
         
