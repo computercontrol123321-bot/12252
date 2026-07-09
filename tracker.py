@@ -17,8 +17,8 @@ APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
 TARGET_PRICE = 290000 
 HISTORY_FILE = "price_history.json"
 
-# Apify Actor ID (가장 유명한 Google Flights Scraper)
-ACTOR_ID = "scrapeai/google-flights-scraper"
+# Apify Actor ID
+ACTOR_ID = "scrapemesh/google-flights-scraper"
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
