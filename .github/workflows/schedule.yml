@@ -48,6 +48,7 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
+        SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
       run: |
         sudo apt-get install -y xvfb
         xvfb-run python tracker.py

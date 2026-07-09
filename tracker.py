@@ -13,6 +13,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 # ─── 설정값 ───────────────────────────────────────────────
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 TARGET_PRICE = 930000  # 목표 가격 (3인 합산 총액, 93만원 이하)
 HISTORY_FILE = "price_history.json"
 MAX_HISTORY = 288  # 5분 × 288 = 24시간치 기록 보관
@@ -100,62 +101,57 @@ async def send_telegram_message(message):
 
 # ─── 메인 스크래핑 ──────────────────────────────────────────
 async def check_flights():
-    """트립닷컴 항공권 가격 조회"""
-    url = "https://kr.trip.com/flights/seoul-to-tokyo/tickets-sel-tyo?dcity=sel&acity=tyo&ddate=2026-10-22&rdate=2026-10-25&flighttype=rt&class=y&quantity=3"
+    """구글 플라이트 항공권 가격 조회 (ScraperAPI 경유)"""
+    url = "https://www.google.com/travel/flights?q=Flights%20to%20TYO%20from%20SEL%20on%202026-10-22%20through%202026-10-25%20for%203%20adults"
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now_str = now.strftime("%Y-%m-%d %H:%M KST")
-    print(f"🕐 {now_str} — 가격 조회 시작 (Trip.com)")
+    print(f"🕐 {now_str} — 가격 조회 시작 (Google Flights via ScraperAPI)")
 
     history = load_history()
     lowest_price = None
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # ScraperAPI 프록시 설정
+        proxy_settings = None
+        if SCRAPER_API_KEY:
+            proxy_settings = {
+                "server": "http://proxy-server.scraperapi.com:8001",
+                "username": "scraperapi",
+                "password": SCRAPER_API_KEY
+            }
+            print("🌐 ScraperAPI 프록시 적용 완료")
+        else:
+            print("⚠️ SCRAPER_API_KEY가 설정되지 않아 로컬 네트워크로 직접 접속합니다.")
+
+        browser = await p.chromium.launch(headless=True, proxy=proxy_settings)
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            locale="ko-KR"
         )
         
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
             try:
-                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Trip.com 로딩 중...")
+                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Google Flights 로딩 중...")
                 await page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 
+                # 구글 플라이트 렌더링 대기
+                await page.wait_for_timeout(5000)
+                
+                html = await page.content()
+                prices_text = re.findall(r'₩\s*(\d{1,3}(?:,\d{3})+)', html)
+                
                 valid_prices = []
-                for _ in range(25):
-                    # "선택" 버튼 주변의 가격만 정확히 추출 (상단 달력 탭 가격 제외)
-                    prices = await page.evaluate('''() => {
-                        const buttons = Array.from(document.querySelectorAll('button, div')).filter(el => el.textContent === '선택' || el.innerText === '선택');
-                        let foundPrices = [];
-                        for (let btn of buttons) {
-                            let parent = btn.parentElement;
-                            for (let i=0; i<5; i++) {
-                                if (parent) {
-                                    const match = parent.innerText.match(/(\\d{1,3}(?:,\\d{3})+)\\s*원/);
-                                    if (match) {
-                                        foundPrices.push(match[1]);
-                                        break;
-                                    }
-                                    parent = parent.parentElement;
-                                }
-                            }
-                        }
-                        return foundPrices;
-                    }''')
-                    
-                    if prices and len(prices) > 0:
-                        for pt in prices:
-                            price = int(pt.replace(',', ''))
-                            if 50000 < price < 1500000:
-                                valid_prices.append(price)
-                        if valid_prices:
-                            break
-                    await page.wait_for_timeout(2000)
+                for pt in prices_text:
+                    price = int(pt.replace(',', ''))
+                    # 총합 3인 가격 기준이므로 범위 조정 (약 30만 원 ~ 300만 원)
+                    if 300000 < price < 3000000:
+                        valid_prices.append(price)
 
                 if valid_prices:
-                    # Trip.com displays price per person, so we multiply by 3 to get total price
-                    lowest_price = min(valid_prices) * 3
+                    # Google Flights는 파라미터에 따라 3인 총액을 보여주므로 그대로 사용
+                    lowest_price = min(valid_prices)
                     print(f"  ✅ 최저가 발견: {lowest_price:,}원 (총 {len(valid_prices)}개 가격)")
                     break  # 성공 → 루프 탈출
                 else:
