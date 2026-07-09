@@ -102,7 +102,7 @@ async def send_telegram_message(message):
 # ─── 메인 스크래핑 ──────────────────────────────────────────
 async def check_flights():
     """구글 플라이트 항공권 가격 조회 (ScraperAPI 경유)"""
-    url = "https://www.google.com/travel/flights?q=Flights%20to%20TYO%20from%20SEL%20on%202026-10-22%20through%202026-10-25%20for%203%20adults"
+    url = "https://www.google.com/travel/flights?q=Flights%20to%20TYO%20from%20SEL%20on%202026-10-22%20through%202026-10-25%20for%203%20adults&hl=ko&curr=KRW"
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now_str = now.strftime("%Y-%m-%d %H:%M KST")
