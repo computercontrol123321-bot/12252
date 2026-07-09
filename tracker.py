@@ -13,8 +13,8 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 # 구글 플라이트는 3인 총액이 아니라 '1인당 요금'을 보여줄 때가 많음.
-# 도쿄 왕복 1인당 목표가를 25만원으로 설정 (총액 75만원)
-TARGET_PRICE = 250000 
+# 도쿄 왕복 1인당 목표가를 29만원으로 설정
+TARGET_PRICE = 290000 
 
 HISTORY_FILE = "price_history.json"
 
@@ -76,13 +76,13 @@ async def main():
     history = load_history()
     
     # --- 크레딧 보호(1시간 간격 강제) 로직 ---
-    # cron-job.org가 10분마다 찔러도, 마지막 실행 후 55분이 안 지났으면 크레딧 소모 없이 패스
+    # cron-job.org가 10분마다 찔러도, 마지막 실행 후 45분이 안 지났으면 크레딧 소모 없이 패스
     if history.get("last_run_time"):
         try:
             last_run = datetime.strptime(history["last_run_time"], "%Y-%m-%d %H:%M KST")
             time_diff = now.replace(tzinfo=None) - last_run
-            if time_diff.total_seconds() < 55 * 60:
-                print(f"⏸️ 1시간 쿨타임 대기 중입니다. (마지막 실행: {history['last_run_time']})")
+            if time_diff.total_seconds() < 45 * 60:
+                print(f"⏸️ 45분 쿨타임 대기 중입니다. (마지막 실행: {history['last_run_time']})")
                 print("무료 크레딧(5000개) 방어를 위해 조회를 건너뜁니다.")
                 sys.exit(0)
         except Exception as e:
