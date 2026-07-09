@@ -61,7 +61,8 @@ def get_flight_price():
     
     try:
         # 1. 봇 실행 (비동기로 실행하고 Run ID를 받음)
-        start_url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
+        actor_path = ACTOR_ID.replace("/", "~")
+        start_url = f"https://api.apify.com/v2/acts/{actor_path}/runs?token={APIFY_TOKEN}"
         res = requests.post(start_url, json=run_input)
         
         if res.status_code != 201:
