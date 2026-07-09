@@ -138,8 +138,17 @@ async def check_flights():
             page = await context.new_page()
             try:
                 print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] 페이지 로딩 중...")
-                await page.goto(url, wait_until='networkidle', timeout=60000)
-                await page.wait_for_timeout(10000)  # JS 렌더링 대기
+                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                
+                # '원'이나 '₩' 기호가 화면에 나타날 때까지 최대 40초 대기 (GitHub Actions 환경은 더 느릴 수 있으므로)
+                try:
+                    await page.wait_for_function(
+                        "() => document.body.innerText.includes('원') || document.body.innerText.includes('₩')",
+                        timeout=40000
+                    )
+                    await page.wait_for_timeout(3000)  # JS 렌더링이 완전히 안정화될 때까지 3초 추가 대기
+                except Exception:
+                    pass  # 시간 초과 시 아래 필터링에서 걸러지고 재시도됨
 
                 # ₩ 또는 '원' 포함된 leaf 요소에서 가격 추출
                 prices_text = await page.evaluate('''() => {
