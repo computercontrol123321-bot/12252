@@ -134,6 +134,16 @@ async def check_flights():
         
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
+            
+            # 불필요한 리소스 차단 (ScraperAPI 동시 접속 제한 방지)
+            async def intercept_route(route):
+                if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                    await route.abort()
+                else:
+                    await route.continue_()
+                    
+            await page.route("**/*", intercept_route)
+
             # 봇 탐지 우회 스크립트 주입
             await Stealth().apply_stealth_async(page)
             try:
