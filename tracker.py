@@ -2,8 +2,6 @@ import os
 import re
 import json
 import asyncio
-import urllib.parse
-import aiohttp
 from datetime import datetime, timezone, timedelta
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -69,16 +67,22 @@ async def check_flights():
     now = datetime.now(timezone.utc) + timedelta(hours=9)
     now_str = now.strftime("%Y-%m-%d %H:%M KST")
     
-    print(f"🕐 {now_str} — 가격 조회 시작 (Naver Flights 'API-Only Proxy' Architecture)")
+    print(f"🕐 {now_str} — 가격 조회 시작 (Trip.com via ScraperAPI)")
     
     history = load_history()
     lowest_price = None
     
-    url = "https://flight.naver.com/flights/international/SEL-TYO-20261022/TYO-SEL-20261025?adult=3&fareType=Y"
+    # 트립닷컴 URL (왕복, 성인 3명)
+    url = "https://kr.trip.com/flights/seoul-to-tokyo/tickets-sel-tyo?FlightWay=Return&class=Y&Quantity=3&dcity=sel&acity=tyo&ddate=2026-10-22&rdate=2026-10-25"
 
     async with async_playwright() as p:
-        # 프록시 없이 일반 브라우저 실행 (HTML/CSS/JS는 프록시 없이 무료로 빠르게 로드!)
-        browser = await p.chromium.launch(headless=True)
+        # ScraperAPI Proxy 모드 사용
+        proxy_url = f"http://scraperapi:{SCRAPER_API_KEY}@proxy-server.scraperapi.com:8001" if SCRAPER_API_KEY else None
+        
+        browser = await p.chromium.launch(
+            proxy={"server": proxy_url} if proxy_url else None,
+            headless=True
+        )
         context = await browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -89,94 +93,74 @@ async def check_flights():
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
             
-            api_prices = []
-            
-            # API 요청만 가로채서 ScraperAPI를 통해 1크레딧만 소모하여 우회 전송
+            # 강력한 재시도 로직이 포함된 라우팅 (Timeout / Deadlock 방지)
+            semaphore = asyncio.Semaphore(4)
             async def intercept_route(route):
-                request = route.request
-                
-                # 차단될 API 요청만 프록시로 전송 (searchFlights API)
-                if "searchFlights" in request.url:
-                    print(f"  🔍 API 요청 가로챔: {request.url}")
-                    
+                if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
                     try:
-                        post_data = request.post_data
-                        headers = request.headers
-                        # 보안을 위해 불필요한 브라우저 내부 헤더 제거
-                        headers.pop("host", None)
-                        headers.pop("content-length", None)
-                        
-                        scraper_api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(request.url)}"
-                        
-                        async with aiohttp.ClientSession() as session:
-                            # 15초 타임아웃
-                            async with session.post(scraper_api_url, data=post_data, headers=headers, timeout=15) as response:
-                                resp_body = await response.read()
-                                resp_headers = dict(response.headers)
-                                
-                                # 성공적으로 JSON 응답을 받은 경우 가격 추출 시도
-                                if response.status == 200:
-                                    try:
-                                        data = json.loads(resp_body)
-                                        # 네이버 API 구조 분석
-                                        # data 안의 itineraries 에서 가격 정보 파싱
-                                        # 만약 여기서 못 찾아도 페이지가 DOM으로 렌더링되도록 fulfill
-                                        # 응답 본문에서 모든 숫자를 추출 (정규식 사용)
-                                        pass
-                                    except:
-                                        pass
-                                
-                                await route.fulfill(status=response.status, headers=resp_headers, body=resp_body)
-                    except Exception as e:
-                        print(f"  ❌ API 우회 중 에러: {e}")
                         await route.abort()
-                else:
-                    # 그 외의 모든 이미지, CSS, JS는 프록시 없이 즉시 로드! (빠르고 크레딧 소모 0)
-                    await route.continue_()
+                    except:
+                        pass
+                    return
+                
+                async with semaphore:
+                    for _ in range(3): # 최대 3번 재시도
+                        try:
+                            # 10초 타임아웃으로 Deadlock 방지
+                            response = await route.fetch(timeout=10000)
+                            # 429 Too Many Requests (ScraperAPI 동시접속 제한) 시 재시도
+                            if response.status == 429:
+                                await asyncio.sleep(1.5)
+                                continue
+                                
+                            await route.fulfill(response=response)
+                            return
+                        except Exception:
+                            await asyncio.sleep(1)
+                            continue
+                    
+                    # 모든 재시도 실패 시 펜딩 방지를 위해 즉시 abort
+                    try:
+                        await route.abort()
+                    except:
+                        pass
                         
             await page.route("**/*", intercept_route)
             await Stealth().apply_stealth_async(page)
             
             try:
-                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Naver Flights 로딩 중...")
-                # 45초 대기
-                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] Trip.com 로딩 중...")
+                # 60초 대기, 에러 발생해도 무시하고 진행
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:
+                    print(f"  ⚠️ goto timeout 발생했으나 무시하고 계속 진행: {e}")
                 
                 valid_prices = []
+                # 30초 동안 DOM 주기적 파싱 (트립닷컴은 렌더링이 빠름)
                 for wait_idx in range(15):
                     await page.wait_for_timeout(2000)
-                    
-                    if wait_idx == 4:
-                        try:
-                            await page.get_by_role("button", name="검색").click(timeout=3000)
-                            print("  🔄 검색 버튼 강제 클릭 완료")
-                        except:
-                            pass
-                            
                     html = await page.content()
                     
-                    # 네이버 가격 클래스 추출
-                    prices = re.findall(r'item_Price__[^>]+>([^<]+)</i>', html)
-                    if not prices:
-                        prices = re.findall(r'item_Price__[^>]+><b[^>]*>([^<]+)</b>', html)
-                    if not prices:
-                        prices = re.findall(r'([0-9]{1,3}(?:,[0-9]{3})+)원', html)
+                    # 트립닷컴은 숫자로 된 가격이 포맷팅되어 나옴 (예: 123,456)
+                    # 화면에 보이는 모든 10만원 이상 금액을 스크래핑
+                    raw_prices = re.findall(r'([0-9]{1,3}(?:,[0-9]{3})+)', html)
                     
-                    for p in prices:
-                        clean_price = p.replace(',', '').replace('원', '').strip()
+                    for p in raw_prices:
+                        clean_price = p.replace(',', '').strip()
                         if clean_price.isdigit():
                             num_price = int(clean_price)
-                            # 왕복 3명 기준이므로 최소 30만원 이상
-                            if num_price > 300000:
+                            # 왕복 3명 최저가는 최소 30만원 이상일 것 (이상한 작은 숫자 필터링)
+                            if 300000 < num_price < 5000000:
                                 valid_prices.append(num_price)
                                 
                     if valid_prices:
-                        print(f"  ✅ {wait_idx * 2 + 2}초만에 화면 로딩 완료!")
+                        print(f"  ✅ {wait_idx * 2 + 2}초만에 가격 데이터 추출 완료!")
                         break
 
                 if valid_prices:
                     lowest_price = min(valid_prices)
-                    print(f"  🎯 최저가 발견: {lowest_price:,}원 (총 {len(valid_prices)}개 가격)")
+                    print(f"  🎯 최저가 발견: {lowest_price:,}원 (총 {len(valid_prices)}개 가격 중 최소값)")
                     break
                 else:
                     print(f"  ⚠️ 유효한 가격을 찾지 못함 (시도 {attempt})")
@@ -186,7 +170,7 @@ async def check_flights():
                         if TELEGRAM_TOKEN and CHAT_ID:
                             bot = Bot(token=TELEGRAM_TOKEN)
                             with open(screenshot_path, "rb") as photo_file:
-                                await bot.send_photo(chat_id=CHAT_ID, photo=photo_file, caption=f"❌ 시도 {attempt} 실패 화면 (프록시 API 1크레딧 우회 방식)")
+                                await bot.send_photo(chat_id=CHAT_ID, photo=photo_file, caption=f"❌ 시도 {attempt} 실패 화면 (Trip.com)")
                     except Exception:
                         pass
 
@@ -206,7 +190,7 @@ async def check_flights():
         print("❌ 모든 시도에서 가격을 찾지 못했습니다.")
         await send_telegram_message(
             f"⚠️ 항공권 가격 조회 실패 ({now_str})\n"
-            f"Naver Flights에서 가격을 추출하지 못했습니다.\n"
+            f"Trip.com에서 가격을 추출하지 못했습니다.\n"
             f"수동 확인: {url}"
         )
         return
