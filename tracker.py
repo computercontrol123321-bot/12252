@@ -135,13 +135,23 @@ async def check_flights():
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
             
-            # 불필요한 리소스 차단 (ScraperAPI 동시 접속 제한 방지)
+            # ScraperAPI 무료 요금제 동시 접속 제한(5개)을 피하기 위한 병목 제어
+            semaphore = asyncio.Semaphore(3)
+
+            # 불필요한 리소스 차단 및 트래픽 스로틀링
             async def intercept_route(route):
                 if route.request.resource_type in ["image", "media", "font"]:
                     await route.abort()
-                else:
-                    await route.continue_()
-                    
+                    return
+                
+                async with semaphore:
+                    try:
+                        # 브라우저의 프록시 설정을 통해 직접 요청 (ScraperAPI 경유)
+                        response = await route.fetch()
+                        await route.fulfill(response=response)
+                    except Exception:
+                        pass
+                        
             await page.route("**/*", intercept_route)
 
             # 봇 탐지 우회 스크립트 주입
