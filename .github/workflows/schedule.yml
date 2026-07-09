@@ -1,11 +1,7 @@
 name: Flight Price Tracker
 
 on:
-  schedule:
-    # cron-job.org가 5분마다 workflow_dispatch를 트리거하므로
-    # 여기서는 백업용으로 30분마다 실행 (GitHub가 지연시켜도 보험)
-    - cron: '*/30 * * * *'
-  workflow_dispatch: # cron-job.org 및 수동 실행용
+  workflow_dispatch: # cron-job.org가 5분마다 트리거 + 수동 실행용
 
 # 동시 실행 방지: 이전 실행이 아직 끝나지 않았으면 대기열에 넣지 않고 건너뜀
 concurrency:
