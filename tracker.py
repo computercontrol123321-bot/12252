@@ -74,14 +74,18 @@ def get_trend_info(history, current_price):
 
 # ─── 가격 파싱 ──────────────────────────────────────────────
 def parse_price(price_text):
-    """가격 텍스트에서 숫자 추출"""
+    """₩ 또는 '원' 표기된 가격 텍스트에서 숫자 추출 (KRW 전용)"""
     if not price_text or len(price_text) > 100:
         return None
+    # '₩354,200', '354,200원', '₩ 354,200' 등에서 숫자만 추출
     numbers = re.findall(r'\d+', price_text)
     if not numbers:
         return None
     price = int(''.join(numbers))
-    return price
+    # KRW 항공권 가격 범위 필터 (5만원~200만원)
+    if 50000 < price < 2000000:
+        return price
+    return None
 
 
 # ─── 텔레그램 알림 ──────────────────────────────────────────
@@ -100,40 +104,79 @@ async def send_telegram_message(message):
 
 # ─── 메인 스크래핑 ──────────────────────────────────────────
 async def check_flights():
-    """네이버 항공권 가격 조회"""
-    url = "https://m-flight.naver.com/flights/international/SEL-TYO-20261022/TYO-SEL-20261025?adult=3&fareType=Y"
+    """Google Flights에서 항공권 가격을 1회 조회"""
+    # URL에 KRW 통화, 한국어, 한국 지역 명시
+    url = (
+        "https://www.google.com/travel/flights?"
+        "q=Flights%20to%20Tokyo%20from%20Seoul%20"
+        "on%202026-10-22%20through%202026-10-25%20for%203%20adults"
+        "&curr=KRW"
+    )
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now_str = now.strftime("%Y-%m-%d %H:%M KST")
-    print(f"🕐 {now_str} — 가격 조회 시작 (네이버 항공권)")
+    print(f"🕐 {now_str} — 가격 조회 시작")
 
     history = load_history()
     lowest_price = None
+    stealth = Stealth()
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context()
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent=(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/125.0.0.0 Safari/537.36'
+            )
+        )
         
         for attempt in range(1, MAX_RETRIES + 2):
             page = await context.new_page()
+            await stealth.apply_stealth_async(page)
             try:
-                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] 네이버 항공권 로딩 중...")
-                await page.goto(url, wait_until='networkidle', timeout=60000)
+                print(f"  [시도 {attempt}/{MAX_RETRIES + 1}] 페이지 로딩 중...")
+                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 
+                # '원'이나 '₩' 기호가 화면에 나타날 때까지 최대 40초 대기 (GitHub Actions 환경은 더 느릴 수 있으므로)
+                try:
+                    await page.wait_for_function(
+                        "() => document.body.innerText.includes('원') || document.body.innerText.includes('₩')",
+                        timeout=40000
+                    )
+                    await page.wait_for_timeout(3000)  # JS 렌더링이 완전히 안정화될 때까지 3초 추가 대기
+                except Exception:
+                    # 새로고침 버튼이 있는지 확인 (오류 발생 시)
+                    if await page.locator("text='새로고침'").count() > 0:
+                        print("  [오류 화면 감지] 새로고침 버튼 클릭 시도")
+                        await page.locator("text='새로고침'").click()
+                        
+                        try:
+                            await page.wait_for_function(
+                                "() => document.body.innerText.includes('원') || document.body.innerText.includes('₩')",
+                                timeout=20000
+                            )
+                        except Exception:
+                            pass
+                    pass  # 시간 초과 시 아래 필터링에서 걸러지고 재시도됨
+
+                # ₩ 또는 '원' 포함된 leaf 요소에서 가격 추출
+                prices_text = await page.evaluate('''() => {
+                    const elements = Array.from(document.querySelectorAll('*'));
+                    return elements
+                        .filter(el =>
+                            el.children.length === 0 &&
+                            el.textContent &&
+                            (el.textContent.includes('₩') || el.textContent.includes('원'))
+                        )
+                        .map(el => el.textContent.trim());
+                }''')
+
                 valid_prices = []
-                # 가격이 뜰 때까지 주기적으로 확인 (최대 40초)
-                for _ in range(20):
-                    html = await page.content()
-                    prices_text = re.findall(r'(\d{1,3}(?:,\d{3})+)\s*원', html)
-                    if len(prices_text) > 5:
-                        for pt in prices_text:
-                            price = int(pt.replace(',', ''))
-                            # 네이버는 1인 기준 가격 표기 (5만원~100만원 사이 유효값 필터)
-                            if 50000 < price < 1000000:
-                                valid_prices.append(price * 3) # 3인 총액으로 변환
-                        if valid_prices:
-                            break
-                    await page.wait_for_timeout(2000)
+                for pt in prices_text:
+                    price = parse_price(pt)
+                    if price:
+                        valid_prices.append(price)
 
                 if valid_prices:
                     lowest_price = min(valid_prices)
@@ -169,7 +212,7 @@ async def check_flights():
         print("❌ 모든 시도에서 가격을 찾지 못했습니다.")
         await send_telegram_message(
             f"⚠️ 항공권 가격 조회 실패 ({now_str})\n"
-            f"네이버 항공권에서 가격을 추출하지 못했습니다.\n"
+            f"Google Flights에서 가격을 추출하지 못했습니다.\n"
             f"수동 확인: {url}"
         )
         return
