@@ -174,9 +174,16 @@ async def check_flights():
                     break  # 성공 → 루프 탈출
                 else:
                     print(f"  ⚠️ 유효한 가격을 찾지 못함 (시도 {attempt})")
-                    # 디버깅용 스크린샷
-                    if attempt <= MAX_RETRIES:
-                        await page.screenshot(path=f"debug_attempt_{attempt}.png")
+                    # 디버깅용 스크린샷 텔레그램 전송
+                    screenshot_path = f"debug_attempt_{attempt}.png"
+                    await page.screenshot(path=screenshot_path)
+                    try:
+                        if TELEGRAM_TOKEN and CHAT_ID:
+                            bot = Bot(token=TELEGRAM_TOKEN)
+                            with open(screenshot_path, "rb") as photo_file:
+                                await bot.send_photo(chat_id=CHAT_ID, photo=photo_file, caption=f"🔍 시도 {attempt} 실패 화면 (어떤 화면인지 확인용)")
+                    except Exception as e:
+                        print(f"  ❌ 스크린샷 전송 실패: {e}")
 
             except Exception as e:
                 print(f"  ❌ 스크래핑 오류 (시도 {attempt}): {e}")
