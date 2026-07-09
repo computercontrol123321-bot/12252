@@ -11,6 +11,8 @@ concurrency:
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 5  # 5분 초과 시 자동 종료
 
     steps:
