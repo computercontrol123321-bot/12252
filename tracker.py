@@ -47,14 +47,18 @@ def get_flight_price():
         sys.exit(1)
         
     run_input = {
-        "departure": "SEL",
-        "arrival": "TYO",
-        "departureDate": "2026-10-22",
-        "returnDate": "2026-10-25",
-        "passengers": 3,
+        "routes": [
+            {
+                "origin": "SEL",
+                "destination": "TYO",
+                "depart": "2026-10-22",
+                "ret": "2026-10-25"
+            }
+        ],
+        "adults": 3,
         "currency": "KRW",
-        "type": "round",
-        "maxItems": 5,
+        "language": "ko",
+        "maxItems": 5
     }
     
     print(f"🚀 Apify Google Flights Scraper 호출 중... (Actor: {ACTOR_ID})")
@@ -106,7 +110,7 @@ def get_flight_price():
         except Exception as e:
             print(f"디버그 파일 저장 실패: {e}")
         
-        # 가격 데이터 파싱 (다양한 Apify 봇들의 JSON 형식에 모두 대응)
+        # 가격 데이터 파싱
         price_val = best_flight.get("price")
         
         # 1. price가 딕셔너리인 경우 (예: {"amount": 290000, "currency": "KRW"})
@@ -146,20 +150,34 @@ def get_flight_price():
         else:
             price_per_person = price_val
             
-        # 항공편 상세 정보 추출 (안전하게)
+        # 항공편 상세 정보 추출 (원본 데이터 구조 반영)
         details_str = ""
         try:
-            if "flights" in best_flight and isinstance(best_flight["flights"], list):
-                for idx, leg in enumerate(best_flight["flights"]):
-                    aln = leg.get("airline", "알 수 없음")
-                    dep = str(leg.get("departureTime", "")).replace("T", " ")[:16]
-                    arr = str(leg.get("arrivalTime", "")).replace("T", " ")[:16]
-                    details_str += f"\n  └ {idx+1}구간: {aln} ({dep} ~ {arr})"
-            if not details_str:
-                # flights 배열이 없을 경우를 대비해 최상위 필드 확인
-                aln = best_flight.get("airline", "알 수 없는 항공사")
-                details_str = f"\n  └ 항공사: {aln} (세부 시간은 링크 확인 요망)"
-        except Exception:
+            aln = best_flight.get("airline", "알 수 없음")
+            dep_apt = best_flight.get("departure_airport", "알 수 없음")
+            arr_apt = best_flight.get("arrival_airport", "알 수 없음")
+            
+            # raw_flight_data 내의 세부 시간 정보 추출
+            raw_data = best_flight.get("raw_flight_data", {})
+            flights = raw_data.get("flights", [])
+            
+            if flights and isinstance(flights, list):
+                for idx, leg in enumerate(flights):
+                    leg_aln = leg.get("airline", aln)
+                    
+                    dep_time = "알 수 없음"
+                    arr_time = "알 수 없음"
+                    if isinstance(leg.get("departure_airport"), dict):
+                        dep_time = leg["departure_airport"].get("time", "")
+                    if isinstance(leg.get("arrival_airport"), dict):
+                        arr_time = leg["arrival_airport"].get("time", "")
+                        
+                    details_str += f"\n  └ {idx+1}구간: {leg_aln} ({dep_time} ~ {arr_time})"
+            else:
+                details_str = f"\n  └ 항공사: {aln} ({dep_apt} -> {arr_apt})"
+                
+        except Exception as e:
+            print(f"상세 정보 파싱 에러: {e}")
             details_str = "\n  └ 상세 정보를 불러올 수 없습니다."
             
         print(f"🎯 Apify 추출 성공! 1인당 최저가: {price_per_person}원")
