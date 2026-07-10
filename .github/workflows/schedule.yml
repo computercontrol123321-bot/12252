@@ -45,10 +45,11 @@ jobs:
       run: |
         python tracker.py
 
-    - name: Commit price history
+    - name: Commit price history and debug data
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "Flight Tracker Bot"
         git add price_history.json || true
-        git diff --staged --quiet || git commit -m "📊 가격 이력 업데이트 $(date -u +%Y-%m-%dT%H:%M)"
+        git add last_flight_data.json || true
+        git diff --staged --quiet || git commit -m "📊 데이터 업데이트 $(date -u +%Y-%m-%dT%H:%M)"
         git push || true

@@ -99,6 +99,13 @@ def get_flight_price():
             
         best_flight = items[0]
         
+        # 디버깅을 위해 원본 데이터 저장
+        try:
+            with open("last_flight_data.json", "w", encoding="utf-8") as f:
+                json.dump(best_flight, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"디버그 파일 저장 실패: {e}")
+        
         # 가격 데이터 파싱 (다양한 Apify 봇들의 JSON 형식에 모두 대응)
         price_val = best_flight.get("price")
         
