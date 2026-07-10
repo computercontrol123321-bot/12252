@@ -46,20 +46,17 @@ def get_flight_price():
         print("❌ APIFY_TOKEN is missing!")
         sys.exit(1)
         
-    # scrapemesh/google-flights-scraper의 여러 버전 스키마를 모두 포괄하는 입력
+    # Apify 봇이 모르는 단어(adults, currency 등)가 섞여 있으면 무조건 기본값(델타항공)을 던지는 버그 방지
+    # 오직 공식 문서에 있는 핵심 뼈대 4개만 전송 (최소 규격)
     run_input = {
-        "origin": "SEL",
-        "destination": "TYO",
-        "outboundDate": "2026-10-22",
-        "returnDate": "2026-10-25",
-        "depart": "2026-10-22",
-        "ret": "2026-10-25",
-        "departure": "SEL",
-        "arrival": "TYO",
-        "adults": 3,
-        "passengers": 3,
-        "currency": "KRW",
-        "language": "ko"
+        "routes": [
+            {
+                "origin": "SEL",
+                "destination": "TYO",
+                "depart": "2026-10-22",
+                "ret": "2026-10-25"
+            }
+        ]
     }
     
     print(f"🚀 Apify Google Flights Scraper 호출 중... (Actor: {ACTOR_ID})")
