@@ -1,7 +1,7 @@
 {
   "is_best": true,
   "type": "One way",
-  "price": 873647,
+  "price": 873734,
   "currency": "KRW",
   "duration_minutes": 347,
   "airline": "Delta",
@@ -39,10 +39,10 @@
       "typical_for_this_route": 0,
       "difference_percent": 0
     },
-    "price": 873647,
+    "price": 873734,
     "type": "One way",
     "airline_logo": "",
     "extensions": [],
-    "departure_token": "TOKEN_27003383"
+    "departure_token": "TOKEN_57840854"
   }
 }
