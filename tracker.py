@@ -139,8 +139,24 @@ def get_flight_price():
         else:
             price_per_person = price_val
             
-        print(f"🎯 Apify 추출 성공! 1인당 최저가: {price_per_person}원 (원본: {price_val})")
-        return price_per_person
+        # 항공편 상세 정보 추출 (안전하게)
+        details_str = ""
+        try:
+            if "flights" in best_flight and isinstance(best_flight["flights"], list):
+                for idx, leg in enumerate(best_flight["flights"]):
+                    aln = leg.get("airline", "알 수 없음")
+                    dep = str(leg.get("departureTime", "")).replace("T", " ")[:16]
+                    arr = str(leg.get("arrivalTime", "")).replace("T", " ")[:16]
+                    details_str += f"\n  └ {idx+1}구간: {aln} ({dep} ~ {arr})"
+            if not details_str:
+                # flights 배열이 없을 경우를 대비해 최상위 필드 확인
+                aln = best_flight.get("airline", "알 수 없는 항공사")
+                details_str = f"\n  └ 항공사: {aln} (세부 시간은 링크 확인 요망)"
+        except Exception:
+            details_str = "\n  └ 상세 정보를 불러올 수 없습니다."
+            
+        print(f"🎯 Apify 추출 성공! 1인당 최저가: {price_per_person}원")
+        return {"price": price_per_person, "details": details_str}
 
     except Exception as e:
         print(f"❌ Apify API 호출 중 에러 발생: {e}")
@@ -167,12 +183,15 @@ def main():
             print(f"시간 파싱 에러 (무시하고 진행): {e}")
 
     # 가격 조회
-    lowest_price = get_flight_price()
+    flight_data = get_flight_price()
     
-    if lowest_price is None:
+    if flight_data is None:
         print("⚠️ 가격을 찾지 못했습니다. 쿨타임을 적용하지 않고 종료합니다.")
         sys.exit(1)
         
+    lowest_price = flight_data["price"]
+    details_str = flight_data.get("details", "")
+    
     history["last_run_time"] = current_time_str
     lowest_ever = history.get("lowest_ever", float('inf'))
     
@@ -201,7 +220,8 @@ def main():
             
         msg += (
             f"💸 **1인당 요금:** `{lowest_price:,}원`\n"
-            f"💰 **3인 총액:** `{total_price:,}원`\n\n"
+            f"💰 **3인 총액:** `{total_price:,}원`\n"
+            f"📝 **항공편 요약:**{details_str}\n\n"
             f"🔍 [구글 플라이트로 예매하러 가기 (검색창 자동완성)](https://www.google.com/travel/flights?q=Flights%20from%20SEL%20to%20TYO%20on%202026-10-22%20through%202026-10-25%20for%203%20adults)\n"
             f"_(마지막 조회: {current_time_str})_"
         )
