@@ -1,8 +1,8 @@
 {
   "is_best": true,
   "type": "One way",
-  "price": 872678,
-  "currency": "KRW",
+  "price": 194,
+  "currency": "USD",
   "duration_minutes": 347,
   "airline": "Delta",
   "departure_airport": "LAX",
@@ -39,10 +39,10 @@
       "typical_for_this_route": 0,
       "difference_percent": 0
     },
-    "price": 872678,
+    "price": 194,
     "type": "One way",
     "airline_logo": "",
     "extensions": [],
-    "departure_token": "TOKEN_20050017"
+    "departure_token": "TOKEN_32958213"
   }
 }
