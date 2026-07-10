@@ -1,9 +1,9 @@
 {
   "is_best": true,
   "type": "One way",
-  "price": 211370,
+  "price": 873482,
   "currency": "KRW",
-  "duration_minutes": 324,
+  "duration_minutes": 347,
   "airline": "Delta",
   "departure_airport": "LAX",
   "arrival_airport": "JFK",
@@ -13,16 +13,16 @@
         "departure_airport": {
           "name": "LAX",
           "id": "LAX",
-          "time": "12:25 PM on Thu, Oct 22"
+          "time": "11:15 AM on Tue, Jul 28"
         },
         "arrival_airport": {
           "name": "JFK",
           "id": "JFK",
-          "time": "8:49 PM on Thu, Oct 22"
+          "time": "8:02 PM on Tue, Jul 28"
         },
         "airline": "Delta",
         "flight_number": "Delta",
-        "duration": 324,
+        "duration": 347,
         "airplane": "Boeing/Airbus",
         "airline_logo": "",
         "travel_class": "Economy",
@@ -33,16 +33,16 @@
         ]
       }
     ],
-    "total_duration": 324,
+    "total_duration": 347,
     "carbon_emissions": {
       "this_flight": 0,
       "typical_for_this_route": 0,
       "difference_percent": 0
     },
-    "price": 211370,
+    "price": 873482,
     "type": "One way",
     "airline_logo": "",
     "extensions": [],
-    "departure_token": "TOKEN_90016244"
+    "departure_token": "TOKEN_75468764"
   }
 }
