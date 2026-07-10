@@ -4,7 +4,7 @@ import json
 import asyncio
 import time
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from telegram import Bot
 
 # ==========================================
@@ -188,7 +188,9 @@ def get_flight_price():
         return None
 
 def main():
-    now = datetime.now()
+    # KST 시간대 설정 (UTC+9)
+    kst = timezone(timedelta(hours=9))
+    now = datetime.now(kst)
     current_time_str = now.strftime("%Y-%m-%d %H:%M KST")
     print(f"\n🕐 {current_time_str} — Apify 구글 플라이트 가격 조회 시작")
     
@@ -196,14 +198,15 @@ def main():
     
     # --- 크레딧 보호(20분 간격 강제) 로직 ---
     # Apify는 비용이 저렴하므로 쿨타임을 20분으로 대폭 축소
-    if history.get("last_run_time"):
+    if "last_run_time" in history:
         try:
-            last_run = datetime.strptime(history["last_run_time"], "%Y-%m-%d %H:%M KST")
-            time_diff = now.replace(tzinfo=None) - last_run
+            # KST 기준으로 시간 차이 계산
+            last_run = datetime.strptime(history["last_run_time"], "%Y-%m-%d %H:%M KST").replace(tzinfo=kst)
+            time_diff = now - last_run
             if time_diff.total_seconds() < 19 * 60:
                 print(f"⏸️ 20분 쿨타임 대기 중입니다. (마지막 실행: {history['last_run_time']})")
                 print("무료 캐시($5) 방어를 위해 조회를 건너뜁니다.")
-                sys.exit(0)
+                return
         except Exception as e:
             print(f"시간 파싱 에러 (무시하고 진행): {e}")
 
